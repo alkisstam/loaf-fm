@@ -2281,7 +2281,8 @@ impl Default for LoafEngineRust {
             .unwrap_or("Home")
             .to_string();
 
-        let items = scan_directory(home_path, false, "name", true, "first");
+        let show_hidden = load_settings().get("show_hidden").map(|v| v == "true").unwrap_or(false);
+        let items = scan_directory(home_path, show_hidden, "name", true, "first");
         let files_json = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
 
         let crumbs = build_breadcrumbs(home_path, None);
@@ -2304,7 +2305,7 @@ impl Default for LoafEngineRust {
             breadcrumbs_json: QString::from(&crumbs_json),
             is_dark: detect_system_dark_mode(),
             has_clipboard: false,
-            show_hidden: false,
+            show_hidden,
             disambiguate_duplicates: true,
             wallpaper_colors_json: QString::from(&wp_colors),
             is_searching_everywhere: false,
@@ -2502,6 +2503,7 @@ impl qobject::LoafEngine {
     pub fn toggle_show_hidden(mut self: Pin<&mut Self>) {
         let cur_val = *self.as_ref().show_hidden();
         self.as_mut().set_show_hidden(!cur_val);
+        self.as_mut().set_setting(&QString::from("show_hidden"), &QString::from(if cur_val { "false" } else { "true" }));
         self.refresh();
     }
 
