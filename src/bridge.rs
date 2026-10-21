@@ -35,6 +35,8 @@ pub mod qobject {
         #[qproperty(bool, can_undo)]
         #[qproperty(bool, can_redo)]
         #[qproperty(QString, trash_root)]
+        #[qproperty(QString, home_path)]
+        #[qproperty(QString, projects_path)]
         type LoafEngine = super::LoafEngineRust;
 
         #[qinvokable]
@@ -499,6 +501,8 @@ pub struct LoafEngineRust {
     can_undo: bool,
     can_redo: bool,
     trash_root: QString,
+    home_path: QString,
+    projects_path: QString,
     history_stack: Vec<String>,
     forward_stack: Vec<String>,
 }
@@ -741,6 +745,15 @@ fn config_file_path() -> PathBuf {
     }
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home).join(".config/loaf/config.json")
+}
+
+fn projects_dir() -> PathBuf {
+    if let Some(dir) = load_settings().get("projects_dir").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    let candidates = [home.join("Projects"), home.join("Documents/Projects")];
+    candidates.iter().find(|p| p.is_dir()).cloned().unwrap_or_else(|| home.join("Projects"))
 }
 
 fn load_settings() -> HashMap<String, String> {
@@ -1628,10 +1641,11 @@ fn record_dir_visit(path: &str) {
 
 fn get_frequent_dirs() -> Vec<FrequentDirItem> {
     let home = std::env::var("HOME").unwrap_or_default();
+    let projects = projects_dir().to_string_lossy().to_string();
     // Seed defaults so the row is never empty on first run.
     let defaults = [
-        ("loaf", format!("{}/Projects/loaf", home), "code"),
-        ("Projects", format!("{}/Projects", home), "code"),
+        ("loaf", format!("{}/loaf", projects), "code"),
+        ("Projects", projects.clone(), "code"),
         ("Wallpapers", format!("{}/Pictures/Wallpapers", home), "image"),
         ("Downloads", format!("{}/Downloads", home), "download"),
         (".config", format!("{}/.config", home), "gear"),
@@ -1929,20 +1943,19 @@ fn build_breadcrumbs(target_path: &Path, forward_target: Option<&str>) -> Vec<Br
     let mut crumbs = Vec::new();
 
     let known_places = [
-        ("Projects", "code", "utilities-terminal-symbolic"),
-        ("Downloads", "download", "folder-download-symbolic"),
-        ("Documents", "file-text", "x-office-document-symbolic"),
-        ("Pictures", "image", "image-x-generic-symbolic"),
-        ("Music", "music", "audio-x-generic-symbolic"),
-        ("Videos", "video", "video-x-generic-symbolic"),
+        (projects_dir(), "Projects", "code", "utilities-terminal-symbolic"),
+        (home_path.join("Downloads"), "Downloads", "download", "folder-download-symbolic"),
+        (home_path.join("Documents"), "Documents", "file-text", "x-office-document-symbolic"),
+        (home_path.join("Pictures"), "Pictures", "image", "image-x-generic-symbolic"),
+        (home_path.join("Music"), "Music", "music", "audio-x-generic-symbolic"),
+        (home_path.join("Videos"), "Videos", "video", "video-x-generic-symbolic"),
     ];
 
     let mut base_matched: Option<(PathBuf, String, &'static str, &'static str)> = None;
 
-    for (dir_name, icon, sys_icon) in &known_places {
-        let p = home_path.join(dir_name);
-        if target_path.starts_with(&p) {
-            base_matched = Some((p, dir_name.to_string(), icon, sys_icon));
+    for (p, dir_name, icon, sys_icon) in &known_places {
+        if target_path.starts_with(p) {
+            base_matched = Some((p.clone(), dir_name.to_string(), icon, sys_icon));
             break;
         }
     }
@@ -2312,6 +2325,8 @@ impl Default for LoafEngineRust {
             can_undo: false,
             can_redo: false,
             trash_root: QString::from(&trash_paths().0.to_string_lossy().to_string()),
+            home_path: QString::from(&home),
+            projects_path: QString::from(&projects_dir().to_string_lossy().to_string()),
             history_stack: Vec::new(),
             forward_stack: Vec::new(),
         }
@@ -3141,16 +3156,20 @@ impl qobject::LoafEngine {
         QString::from(&value)
     }
 
-    pub fn set_setting(self: Pin<&mut Self>, key: &QString, value: &QString) {
+    pub fn set_setting(mut self: Pin<&mut Self>, key: &QString, value: &QString) {
         let k = key.to_string();
         let v = value.to_string();
         let mut map = load_settings();
         if map.get(&k).map(|existing| existing == &v).unwrap_or(false) {
             return;
         }
-        map.insert(k, v);
+        map.insert(k.clone(), v);
         save_settings(&map);
         *SETTINGS_STORE.lock().unwrap() = Some(map);
+        if k == "projects_dir" {
+            let dir = projects_dir().to_string_lossy().to_string();
+            self.as_mut().set_projects_path(QString::from(&dir));
+        }
     }
 
     pub fn mount_drive(mut self: Pin<&mut Self>, device: &QString) {

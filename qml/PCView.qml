@@ -455,7 +455,7 @@ Item {
                                     { name: "Pictures", iconName: "image", pathSuffix: "Pictures" },
                                     { name: "Music", iconName: "music", pathSuffix: "Music" },
                                     { name: "Videos", iconName: "video", pathSuffix: "Videos" },
-                                    { name: "Projects", iconName: "code", pathSuffix: "Projects" }
+                                    { name: "Projects", iconName: "code", projectsRoot: true }
                                 ]
 
                                 delegate: Rectangle {
@@ -495,8 +495,8 @@ Item {
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            var homeBase = "/home/" + (engine.current_path.split("/")[2] || "m_uvex");
-                                            var target = modelData.pathSuffix === "" ? homeBase : (homeBase + "/" + modelData.pathSuffix);
+                                            var target = modelData.projectsRoot ? engine.projects_path
+                                                : modelData.pathSuffix === "" ? engine.home_path : (engine.home_path + "/" + modelData.pathSuffix);
                                             window.showFiles(index + 1);
                                             engine.set_path(target);
                                         }
@@ -519,7 +519,7 @@ Item {
                                 { name: "Pictures", iconName: "image", pathSuffix: "Pictures" },
                                 { name: "Music", iconName: "music", pathSuffix: "Music" },
                                 { name: "Videos", iconName: "video", pathSuffix: "Videos" },
-                                { name: "Projects", iconName: "code", pathSuffix: "Projects" }
+                                { name: "Projects", iconName: "code", projectsRoot: true }
                             ]
 
                             delegate: Rectangle {
@@ -544,8 +544,8 @@ Item {
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        var homeBase = "/home/" + (engine.current_path.split("/")[2] || "m_uvex");
-                                        var target = modelData.pathSuffix === "" ? homeBase : (homeBase + "/" + modelData.pathSuffix);
+                                        var target = modelData.projectsRoot ? engine.projects_path
+                                            : modelData.pathSuffix === "" ? engine.home_path : (engine.home_path + "/" + modelData.pathSuffix);
                                         window.showFiles(index + 1);
                                         engine.set_path(target);
                                     }

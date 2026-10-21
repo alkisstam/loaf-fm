@@ -1446,7 +1446,7 @@ ApplicationWindow {
                                     { name: "Pictures", iconName: "image", systemIcon: "image-x-generic-symbolic", pathSuffix: "Pictures", view: "files" },
                                     { name: "Music", iconName: "music", systemIcon: "audio-x-generic-symbolic", pathSuffix: "Music", view: "files" },
                                     { name: "Videos", iconName: "video", systemIcon: "video-x-generic-symbolic", pathSuffix: "Videos", view: "files" },
-                                    { name: "Projects", iconName: "code", systemIcon: "utilities-terminal-symbolic", pathSuffix: "Projects", view: "files" },
+                                    { name: "Projects", iconName: "code", systemIcon: "utilities-terminal-symbolic", projectsRoot: true, view: "files" },
                                     { name: "Trash", iconName: "trash", systemIcon: "user-trash-symbolic", view: "files", trashRoot: true }
                                 ]
 
@@ -1659,14 +1659,17 @@ ApplicationWindow {
                                                 window.currentPlaceIndex = index;
                                                 window.activeView = "files";
                                                 engine.set_path(engine.trash_root);
+                                            } else if (modelData.projectsRoot) {
+                                                window.currentPlaceIndex = index;
+                                                window.activeView = "files";
+                                                engine.set_path(engine.projects_path);
                                             } else {
                                                 window.currentPlaceIndex = index;
                                                 window.activeView = "files";
-                                                var homeBase = "/home/" + (engine.current_path.split("/")[2] || "m_uvex");
                                                 if (modelData.pathSuffix === "") {
-                                                    engine.set_path(homeBase);
+                                                    engine.set_path(engine.home_path);
                                                 } else {
-                                                    engine.set_path(homeBase + "/" + modelData.pathSuffix);
+                                                    engine.set_path(engine.home_path + "/" + modelData.pathSuffix);
                                                 }
                                             }
                                         }

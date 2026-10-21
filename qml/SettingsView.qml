@@ -32,13 +32,14 @@ Item {
     readonly property bool card7Match: matchesQuery("picture thumbnails preview image photo svg gallery")
     readonly property bool card8Match: matchesQuery("show hidden files dot dotfiles folders")
     readonly property bool card9Match: matchesQuery("disambiguate duplicate names parent folder prefix search")
+    readonly property bool card13Match: matchesQuery("projects folder directory path code repos sidebar")
 
     readonly property bool card10Match: matchesQuery("experimental icon styles adwaita advanced archives compress cpio tar formats")
     readonly property bool card11Match: matchesQuery("about loaf version musa orbitos author credits")
     readonly property bool card12Match: matchesQuery("experimental pc customization dashboard layout sections this pc")
 
     readonly property int interfaceMatches: (card1Match ? 1 : 0) + (card2Match ? 1 : 0) + (card3Match ? 1 : 0) + (card4Match ? 1 : 0) + (card5Match ? 1 : 0)
-    readonly property int behaviorMatches: (card6Match ? 1 : 0) + (card7Match ? 1 : 0) + (card8Match ? 1 : 0) + (card9Match ? 1 : 0)
+    readonly property int behaviorMatches: (card6Match ? 1 : 0) + (card7Match ? 1 : 0) + (card8Match ? 1 : 0) + (card9Match ? 1 : 0) + (card13Match ? 1 : 0)
     readonly property int experimentalMatches: (card10Match ? 1 : 0) + (card12Match ? 1 : 0)
     readonly property int aboutMatches: (card11Match ? 1 : 0)
     readonly property int totalMatches: interfaceMatches + behaviorMatches + experimentalMatches + aboutMatches
@@ -867,6 +868,47 @@ Item {
                                     if (disambigSwitch.checked !== engine.disambiguate_duplicates)
                                         disambigSwitch.checked = engine.disambiguate_duplicates
                                 }
+                            }
+                        }
+
+                        // Projects folder
+                        Rectangle {
+                            visible: settingsView.searchQuery.length === 0 || settingsView.card13Match
+                            Layout.fillWidth: true
+                            implicitHeight: projectsRow.implicitHeight + 32
+                            radius: theme.radiusL
+                            color: theme.surfaceContainer
+                            Behavior on color { ColorAnimation { duration: theme.durationNormal } }
+
+                            RowLayout {
+                                id: projectsRow
+                                anchors.fill: parent
+                                anchors.margins: 16
+                                spacing: 14
+
+                                ColumnLayout {
+                                    spacing: 3
+                                    Layout.fillWidth: true
+                                    Text { text: "Projects folder"; color: theme.textMain; font.pixelSize: 14; font.bold: true }
+                                    Text { text: engine.projects_path; color: theme.textMuted; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                }
+
+                                LoafButton {
+                                    text: "Change"
+                                    variant: "tonal"
+                                    onClicked: {
+                                        projectsPrompt.initialText = engine.get_setting("projects_dir");
+                                        projectsPrompt.open();
+                                    }
+                                }
+                            }
+
+                            LoafTextPrompt {
+                                id: projectsPrompt
+                                title: "Projects folder"
+                                label: "Full path. Leave empty to auto-detect."
+                                placeholder: engine.home_path + "/Projects"
+                                onAccepted: function(text) { engine.set_setting("projects_dir", text.trim().replace(/^~(?=\/|$)/, engine.home_path)) }
                             }
                         }
                     }
