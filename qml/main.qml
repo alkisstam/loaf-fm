@@ -113,7 +113,7 @@ ApplicationWindow {
     readonly property bool listShowType: width >= 980
 
     // True while any modal dialog is open (arrow keys / shortcuts must not fire).
-    readonly property bool anyModalOpen: inputModal.visible || propsModal.visible
+    readonly property bool anyModalOpen: inputModal.visible || propsModal.visible || quickLook.visible
         || conflictModal.visible || passwordModal.visible || window.isEditingPath
 
     // True when a plain keystroke should be routed to the grid/list (no input
@@ -200,6 +200,11 @@ ApplicationWindow {
                 case Qt.Key_Return:
                 case Qt.Key_Enter:
                     gridContainer.openSelected();
+                    event.accepted = true;
+                    return;
+                case Qt.Key_Space:
+                    if (!event.isAutoRepeat)
+                        gridContainer.quickLookSelected();
                     event.accepted = true;
                     return;
                 }
@@ -2163,6 +2168,13 @@ ApplicationWindow {
                             }
                         }
 
+                        function quickLookSelected() {
+                            var items = getSelectedItems();
+                            if (items.length === 0) return;
+                            var it = items[0];
+                            quickLook.showFor(engine.is_searching_everywhere ? it.path : (engine.current_path + "/" + it.name), it.icon_path);
+                        }
+
                         function openSelected() {
                             var items = getSelectedItems();
                             if (items.length > 0) {
@@ -2541,6 +2553,11 @@ ApplicationWindow {
                             }
                             Keys.onEnterPressed: function(event) {
                                 openSelected();
+                                event.accepted = true;
+                            }
+                            Keys.onSpacePressed: function(event) {
+                                if (!event.isAutoRepeat)
+                                    gridContainer.quickLookSelected();
                                 event.accepted = true;
                             }
 
@@ -3157,6 +3174,11 @@ ApplicationWindow {
                             }
                             Keys.onEnterPressed: function(event) {
                                 gridContainer.openSelected();
+                                event.accepted = true;
+                            }
+                            Keys.onSpacePressed: function(event) {
+                                if (!event.isAutoRepeat)
+                                    gridContainer.quickLookSelected();
                                 event.accepted = true;
                             }
 
@@ -4293,6 +4315,15 @@ ApplicationWindow {
             ];
             openAt(px, py);
         }
+    }
+
+    QuickLook {
+        id: quickLook
+        onNavigate: function(dx, dy) {
+            gridContainer.moveSelection(dx, dy, false);
+            gridContainer.quickLookSelected();
+        }
+        onClosed: globalKeyHandler.forceActiveFocus()
     }
 
     // ==========================================

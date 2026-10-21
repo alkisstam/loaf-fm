@@ -121,6 +121,9 @@ pub mod qobject {
         fn get_item_info(self: &LoafEngine, path: &QString) -> QString;
 
         #[qinvokable]
+        fn quick_look(self: &LoafEngine, path: &QString) -> QString;
+
+        #[qinvokable]
         fn set_sort(self: Pin<&mut LoafEngine>, sort_by: &QString, ascending: bool);
 
         #[qinvokable]
@@ -1604,6 +1607,54 @@ fn is_natively_renderable(ext: &str) -> bool {
         ext,
         "png" | "jpg" | "jpeg" | "jpe" | "jfif" | "gif" | "bmp" | "dib" | "ico" | "svg" | "svgz" | "xpm"
     )
+}
+
+const QUICK_LOOK_TEXT_LIMIT: usize = 128 * 1024;
+
+fn quick_look_kind(path: &Path) -> &'static str {
+    if path.is_dir() {
+        return "folder";
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).unwrap_or_default();
+    if is_picture_format(&ext) {
+        return "image";
+    }
+    match ext.as_str() {
+        "pdf" => return "pdf",
+        "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "ogv" | "wmv" | "flv" => return "video",
+        "mp3" | "flac" | "ogg" | "oga" | "opus" | "wav" | "m4a" | "aac" | "wma" => return "audio",
+        _ => {}
+    }
+    // Sniff the head for text: no NUL bytes and valid UTF-8 (allowing a cut multibyte tail).
+    let Ok(mut f) = fs::File::open(path) else { return "other" };
+    let mut buf = [0u8; 8192];
+    let n = std::io::Read::read(&mut f, &mut buf).unwrap_or(0);
+    let head = &buf[..n];
+    if head.contains(&0) {
+        return "other";
+    }
+    match std::str::from_utf8(head) {
+        Ok(_) => "text",
+        Err(e) if e.error_len().is_none() => "text",
+        Err(_) => "other",
+    }
+}
+
+fn render_pdf_preview(path: &Path) -> String {
+    let cached = get_thumbnail_cache_dir().join(format!("{}-ql.png", compute_file_hash(path)));
+    if cached.exists() {
+        return file_url(&cached);
+    }
+    let Some(bin) = resolve_binary("pdftoppm", "poppler") else { return String::new() };
+    let out_base = cached.with_extension("");
+    let ok = std::process::Command::new(bin)
+        .args(["-png", "-singlefile", "-f", "1", "-l", "1", "-scale-to", "1400"])
+        .arg(path)
+        .arg(&out_base)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok && cached.exists() { file_url(&cached) } else { String::new() }
 }
 
 const KRA_EXTRACT_SCRIPT: &str = r#"import sys, zipfile
@@ -3248,6 +3299,47 @@ impl qobject::LoafEngine {
         };
 
         serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string()).into()
+    }
+
+    pub fn quick_look(&self, path: &QString) -> QString {
+        let p = PathBuf::from(path.to_string());
+        let mut info: serde_json::Value = serde_json::from_str(&self.get_item_info(path).to_string())
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let mut kind = quick_look_kind(&p);
+        let mut url = String::new();
+        let mut text = String::new();
+        let mut truncated = false;
+        let mut child_count = 0usize;
+
+        match kind {
+            "folder" => child_count = fs::read_dir(&p).map(|r| r.count()).unwrap_or(0),
+            "image" => url = resolve_thumbnail_path(&p),
+            "pdf" => {
+                url = render_pdf_preview(&p);
+                if url.is_empty() {
+                    kind = "other";
+                }
+            }
+            "video" | "audio" => url = file_url(&p),
+            "text" => {
+                let bytes = fs::read(&p).unwrap_or_default();
+                truncated = bytes.len() > QUICK_LOOK_TEXT_LIMIT;
+                let head = &bytes[..bytes.len().min(QUICK_LOOK_TEXT_LIMIT)];
+                text = String::from_utf8_lossy(head).to_string();
+            }
+            _ => {}
+        }
+
+        let (_, icon) = icon_for_file(&p, p.is_dir());
+        if let Some(obj) = info.as_object_mut() {
+            obj.insert("kind".into(), kind.into());
+            obj.insert("url".into(), url.into());
+            obj.insert("text".into(), text.into());
+            obj.insert("truncated".into(), truncated.into());
+            obj.insert("child_count".into(), child_count.into());
+            obj.insert("icon".into(), icon.into());
+        }
+        QString::from(&info.to_string())
     }
 
     pub fn undo(mut self: Pin<&mut Self>) {

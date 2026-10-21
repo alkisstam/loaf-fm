@@ -128,6 +128,8 @@ Item {
         "key": "\ue2d6",
         "link": "\ue2e2",
         "x": "\ue4f6",
+        "play": "\ue3d0",
+        "pause": "\ue39e",
         "plus": "\ue3d4",
         "minus": "\ue32a",
         "dots-six-vertical": "\ueae2",

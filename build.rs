@@ -8,6 +8,8 @@ fn main() {
             .qml_file("qml/LoafIcon.qml")
             .qml_file("qml/SettingsView.qml")
             .qml_file("qml/PCView.qml")
+            .qml_file("qml/QuickLook.qml")
+            .qml_file("qml/QuickLookMedia.qml")
             .qml_file("qml/components/LoafPopup.qml")
             .qml_file("qml/components/LoafMenuItem.qml")
             .qml_file("qml/components/LoafMenu.qml")
