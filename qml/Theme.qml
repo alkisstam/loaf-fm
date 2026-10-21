@@ -10,6 +10,7 @@ Item {
     property string phosphorWeight: "regular" // "regular", "bold", "fill", "duotone", "light", "thin"
     property string dragAction: "select" // "select" (selection box) or "scroll" (pan view)
     property bool showThumbnails: true
+    property real itemScale: 1.0
     property bool showBrandBadge: true
     property bool showExperimentalIcons: false
     property bool showAdvancedArchives: false
@@ -431,6 +432,9 @@ Item {
 
         value = readSetting("showThumbnails");
         if (value.length > 0) showThumbnails = (value === "true");
+
+        value = readSetting("itemScale");
+        if (value.length > 0) itemScale = Number(value) || 1.0;
         value = readSetting("showBrandBadge");
         if (value.length > 0) showBrandBadge = (value === "true");
         value = readSetting("showExperimentalIcons");
@@ -449,6 +453,7 @@ Item {
     onPhosphorWeightChanged: writeSetting("phosphorWeight", phosphorWeight)
     onDragActionChanged: writeSetting("dragAction", dragAction)
     onShowThumbnailsChanged: writeSetting("showThumbnails", showThumbnails)
+    onItemScaleChanged: writeSetting("itemScale", itemScale)
     onShowBrandBadgeChanged: writeSetting("showBrandBadge", showBrandBadge)
     onShowExperimentalIconsChanged: writeSetting("showExperimentalIcons", showExperimentalIcons)
     onShowAdvancedArchivesChanged: writeSetting("showAdvancedArchives", showAdvancedArchives)

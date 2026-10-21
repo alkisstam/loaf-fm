@@ -33,13 +33,14 @@ Item {
     readonly property bool card8Match: matchesQuery("show hidden files dot dotfiles folders")
     readonly property bool card9Match: matchesQuery("disambiguate duplicate names parent folder prefix search")
     readonly property bool card13Match: matchesQuery("projects folder directory path code repos sidebar")
+    readonly property bool card14Match: matchesQuery("terminal emulator kitty console shell open")
 
     readonly property bool card10Match: matchesQuery("experimental icon styles adwaita advanced archives compress cpio tar formats")
     readonly property bool card11Match: matchesQuery("about loaf version musa orbitos author credits")
     readonly property bool card12Match: matchesQuery("experimental pc customization dashboard layout sections this pc")
 
     readonly property int interfaceMatches: (card1Match ? 1 : 0) + (card2Match ? 1 : 0) + (card3Match ? 1 : 0) + (card4Match ? 1 : 0) + (card5Match ? 1 : 0)
-    readonly property int behaviorMatches: (card6Match ? 1 : 0) + (card7Match ? 1 : 0) + (card8Match ? 1 : 0) + (card9Match ? 1 : 0) + (card13Match ? 1 : 0)
+    readonly property int behaviorMatches: (card6Match ? 1 : 0) + (card7Match ? 1 : 0) + (card8Match ? 1 : 0) + (card9Match ? 1 : 0) + (card13Match ? 1 : 0) + (card14Match ? 1 : 0)
     readonly property int experimentalMatches: (card10Match ? 1 : 0) + (card12Match ? 1 : 0)
     readonly property int aboutMatches: (card11Match ? 1 : 0)
     readonly property int totalMatches: interfaceMatches + behaviorMatches + experimentalMatches + aboutMatches
@@ -909,6 +910,53 @@ Item {
                                 label: "Full path. Leave empty to auto-detect."
                                 placeholder: engine.home_path + "/Projects"
                                 onAccepted: function(text) { engine.set_setting("projects_dir", text.trim().replace(/^~(?=\/|$)/, engine.home_path)) }
+                            }
+                        }
+
+                        // Terminal
+                        Rectangle {
+                            id: terminalCard
+                            visible: settingsView.searchQuery.length === 0 || settingsView.card14Match
+                            Layout.fillWidth: true
+                            implicitHeight: terminalRow.implicitHeight + 32
+                            radius: theme.radiusL
+                            color: theme.surfaceContainer
+                            Behavior on color { ColorAnimation { duration: theme.durationNormal } }
+
+                            property string terminal: engine.get_setting("terminal") || "kitty"
+
+                            RowLayout {
+                                id: terminalRow
+                                anchors.fill: parent
+                                anchors.margins: 16
+                                spacing: 14
+
+                                ColumnLayout {
+                                    spacing: 3
+                                    Layout.fillWidth: true
+                                    Text { text: "Terminal"; color: theme.textMain; font.pixelSize: 14; font.bold: true }
+                                    Text { text: terminalCard.terminal; color: theme.textMuted; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                }
+
+                                LoafButton {
+                                    text: "Change"
+                                    variant: "tonal"
+                                    onClicked: {
+                                        terminalPrompt.initialText = engine.get_setting("terminal");
+                                        terminalPrompt.open();
+                                    }
+                                }
+                            }
+
+                            LoafTextPrompt {
+                                id: terminalPrompt
+                                title: "Terminal"
+                                label: "Terminal program, e.g. kitty, foot, alacritty. Leave empty for kitty."
+                                placeholder: "kitty"
+                                onAccepted: function(text) {
+                                    engine.set_setting("terminal", text.trim());
+                                    terminalCard.terminal = text.trim() || "kitty";
+                                }
                             }
                         }
                     }

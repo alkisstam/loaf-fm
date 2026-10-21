@@ -15,6 +15,7 @@ Item {
     transformOrigin: Item.Center
 
     property string icon: ""
+    property string iconSource: ""
     property string text: ""
     property string shortcut: ""
     property bool danger: false
@@ -149,10 +150,21 @@ Item {
         opacity: root.enabled ? 1.0 : 0.45
 
         LoafIcon {
-            visible: root.icon.length > 0
+            visible: root.icon.length > 0 && root.iconSource.length === 0
             name: root.icon
             size: 16
             color: root.danger ? theme.danger : theme.textMain
+        }
+
+        Image {
+            visible: root.iconSource.length > 0
+            source: root.iconSource
+            Layout.preferredWidth: 16
+            Layout.preferredHeight: 16
+            sourceSize.width: 32
+            sourceSize.height: 32
+            fillMode: Image.PreserveAspectFit
+            smooth: true
         }
 
         Text {

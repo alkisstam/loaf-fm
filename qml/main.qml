@@ -1259,7 +1259,7 @@ ApplicationWindow {
                 text: window.width < 900 ? "" : "Empty Trash"
                 icon: "trash"
                 variant: "danger"
-                onClicked: engine.empty_trash()
+                onClicked: emptyTrashModal.open()
             }
         }
 
@@ -2246,8 +2246,9 @@ ApplicationWindow {
                         GridView {
                             id: filesGridView
                             anchors.fill: parent
-                            cellWidth: 124
-                            cellHeight: 114
+                            // Icons scale with theme.itemScale; label height stays fixed.
+                            cellWidth: Math.round(124 * theme.itemScale)
+                            cellHeight: Math.round(68 + 46 * theme.itemScale)
                             clip: true
                             z: engine.view_mode === "grid" ? 2 : 1
                             // Cross-fade grid <-> list instead of an instant swap.
@@ -2704,8 +2705,8 @@ ApplicationWindow {
 
                                     Item {
                                         Layout.alignment: Qt.AlignHCenter
-                                        Layout.preferredWidth: 46
-                                        Layout.preferredHeight: 46
+                                        Layout.preferredWidth: Math.round(46 * theme.itemScale)
+                                        Layout.preferredHeight: Math.round(46 * theme.itemScale)
 
                                         LoafIcon {
                                             visible: !fileCardDelegate.hasThumbnail && (theme.iconSource === "phosphor")
@@ -2713,7 +2714,7 @@ ApplicationWindow {
                                             name: fileCardDelegate.isCutItem
                                                 ? (fileCardDelegate.item.is_dir ? "folder-dashed" : "file-dashed")
                                                 : (fileCardDelegate.item.icon || (fileCardDelegate.item.is_dir ? "folder" : "file"))
-                                            size: 42
+                                            size: Math.round(42 * theme.itemScale)
                                             color: fileCardDelegate.isSelected
                                                 ? theme.secondaryContainerFg
                                                 : (fileCardDelegate.item.is_dir ? theme.primary : theme.textMain)
@@ -2744,10 +2745,10 @@ ApplicationWindow {
                                             visible: !fileCardDelegate.hasThumbnail && (theme.iconSource === "system")
                                             anchors.centerIn: parent
                                             source: fileCardDelegate.item.icon_path
-                                            width: 44
-                                            height: 44
-                                            sourceSize.width: 64
-                                            sourceSize.height: 64
+                                            width: Math.round(44 * theme.itemScale)
+                                            height: Math.round(44 * theme.itemScale)
+                                            sourceSize.width: 128
+                                            sourceSize.height: 128
                                             fillMode: Image.PreserveAspectFit
                                             smooth: true
                                             mipmap: true
@@ -2786,8 +2787,8 @@ ApplicationWindow {
                                                 anchors.fill: parent
                                                 source: fileCardDelegate.thumbSource
                                                 fillMode: Image.PreserveAspectCrop
-                                                sourceSize.width: 96
-                                                sourceSize.height: 96
+                                                sourceSize.width: 192
+                                                sourceSize.height: 192
                                                 asynchronous: false
                                                 cache: true
                                                 smooth: true
@@ -3164,7 +3165,7 @@ ApplicationWindow {
                             delegate: Item {
                                 id: listRowDelegate
                                 width: filesListView.width
-                                height: 38
+                                height: Math.round(16 + 22 * theme.itemScale)
 
                                 readonly property var item: modelData
                                 readonly property bool isSelected: !engine.is_searching_everywhere && !!gridContainer.selectedIndices[index]
@@ -3218,8 +3219,10 @@ ApplicationWindow {
                                         spacing: 10
 
                                         Item {
-                                            width: 22
-                                            height: 22
+                                            width: Math.round(22 * theme.itemScale)
+                                            height: Math.round(22 * theme.itemScale)
+                                            Layout.preferredWidth: width
+                                            Layout.preferredHeight: height
                                             Layout.alignment: Qt.AlignVCenter
 
                                             LoafIcon {
@@ -3228,7 +3231,7 @@ ApplicationWindow {
                                                 name: listRowDelegate.isCutItem
                                                     ? (listRowDelegate.item.is_dir ? "folder-dashed" : "file-dashed")
                                                     : (listRowDelegate.item.icon || (listRowDelegate.item.is_dir ? "folder" : "file"))
-                                                size: 18
+                                                size: Math.round(18 * theme.itemScale)
                                                 color: listRowDelegate.isSelected ? theme.secondaryContainerFg : (listRowDelegate.item.is_dir ? theme.primary : theme.textMain)
                                             }
 
@@ -3256,10 +3259,10 @@ ApplicationWindow {
                                                 visible: !listRowDelegate.hasThumbnail && theme.iconSource === "system"
                                                 anchors.centerIn: parent
                                                 source: listRowDelegate.item.icon_path ? (listRowDelegate.item.icon_path.indexOf("file://") === 0 ? listRowDelegate.item.icon_path : ("file://" + listRowDelegate.item.icon_path)) : ""
-                                                width: 18
-                                                height: 18
-                                                sourceSize.width: 36
-                                                sourceSize.height: 36
+                                                width: Math.round(18 * theme.itemScale)
+                                                height: Math.round(18 * theme.itemScale)
+                                                sourceSize.width: 64
+                                                sourceSize.height: 64
                                                 fillMode: Image.PreserveAspectFit
                                             }
 
@@ -3276,8 +3279,8 @@ ApplicationWindow {
                                                     anchors.fill: parent
                                                     source: listRowDelegate.thumbSource
                                                     fillMode: Image.PreserveAspectCrop
-                                                    sourceSize.width: 44
-                                                    sourceSize.height: 44
+                                                    sourceSize.width: 96
+                                                    sourceSize.height: 96
                                                     asynchronous: true
                                                     cache: true
                                                     smooth: true
@@ -3771,6 +3774,23 @@ ApplicationWindow {
                 }
             } });
 
+            if (!inTrash && paths.length === 1) {
+                var apps = JSON.parse(engine.open_with_apps(itemPath) || "[]");
+                if (apps.length > 0 && apps[0].is_default) {
+                    m.push({ text: "Open with " + apps[0].name, icon: "arrow-square-out", iconSource: apps[0].icon, action: function() {
+                        engine.open_with(itemPath, apps[0].id);
+                    } });
+                }
+                if (apps.length > 0) {
+                    m.push({ text: "Open With", icon: "arrow-square-out", submenu: apps.map(function(app) {
+                        return { text: app.name, icon: "arrow-square-out", iconSource: app.icon, action: function() {
+                            contextMenu.close();
+                            engine.open_with(itemPath, app.id);
+                        } };
+                    }) });
+                }
+            }
+
             // Hide "Open Containing Folder" when the item already lives in the
             // folder we are browsing.
             var showContaining = isSearching
@@ -4037,6 +4057,57 @@ ApplicationWindow {
             onSelected: function(v) { engine.view_mode = v; viewMenuPopup.close(); }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            spacing: 8
+
+            LoafIcon { name: "image"; size: 12; color: theme.textMuted }
+
+            Slider {
+                id: itemScaleSlider
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
+                from: 0.75
+                to: 1.75
+                stepSize: 0.05
+                value: theme.itemScale
+                onMoved: theme.itemScale = value
+
+                background: Rectangle {
+                    x: itemScaleSlider.leftPadding
+                    y: itemScaleSlider.topPadding + itemScaleSlider.availableHeight / 2 - height / 2
+                    implicitWidth: 120
+                    implicitHeight: 4
+                    width: itemScaleSlider.availableWidth
+                    height: implicitHeight
+                    radius: 2
+                    color: theme.outlineVariant
+
+                    Rectangle {
+                        width: itemScaleSlider.visualPosition * parent.width
+                        height: parent.height
+                        radius: 2
+                        color: theme.primary
+                    }
+                }
+
+                handle: Rectangle {
+                    x: itemScaleSlider.leftPadding + itemScaleSlider.visualPosition * (itemScaleSlider.availableWidth - width)
+                    y: itemScaleSlider.topPadding + itemScaleSlider.availableHeight / 2 - height / 2
+                    implicitWidth: 16
+                    implicitHeight: 16
+                    radius: 8
+                    color: theme.primary
+                    scale: itemScaleSlider.pressed ? 1.15 : 1.0
+                    Behavior on scale { NumberAnimation { duration: theme.durationFast } }
+                }
+            }
+
+            LoafIcon { name: "image"; size: 18; color: theme.textMuted }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
@@ -4221,6 +4292,43 @@ ApplicationWindow {
                 } }
             ];
             openAt(px, py);
+        }
+    }
+
+    // ==========================================
+    // EMPTY TRASH CONFIRMATION
+    // ==========================================
+    LoafDialog {
+        id: emptyTrashModal
+        title: "Empty Trash?"
+
+        Text {
+            text: "All items in the trash will be permanently deleted. This can't be undone."
+            color: theme.textMuted
+            font.pixelSize: 13
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+            spacing: 8
+
+            Item { Layout.fillWidth: true }
+            LoafButton {
+                text: "Cancel"
+                variant: "text"
+                onClicked: emptyTrashModal.close()
+            }
+            LoafButton {
+                text: "Empty Trash"
+                variant: "danger"
+                onClicked: {
+                    engine.empty_trash();
+                    emptyTrashModal.close();
+                }
+            }
         }
     }
 

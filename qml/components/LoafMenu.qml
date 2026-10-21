@@ -333,6 +333,7 @@ LoafPopup {
             LoafMenuItem {
                 id: row
                 icon: rowWrap.entry && rowWrap.entry.icon ? rowWrap.entry.icon : ""
+                iconSource: rowWrap.entry && rowWrap.entry.iconSource ? rowWrap.entry.iconSource : ""
                 text: rowWrap.entry && rowWrap.entry.text ? rowWrap.entry.text : ""
                 shortcut: rowWrap.entry && rowWrap.entry.shortcut ? rowWrap.entry.shortcut : ""
                 danger: rowWrap.entry ? rowWrap.entry.danger === true : false

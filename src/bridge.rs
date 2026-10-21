@@ -91,6 +91,12 @@ pub mod qobject {
         fn open_terminal(self: &LoafEngine, dir_path: &QString);
 
         #[qinvokable]
+        fn open_with_apps(self: &LoafEngine, path: &QString) -> QString;
+
+        #[qinvokable]
+        fn open_with(self: &LoafEngine, path: &QString, desktop_id: &QString);
+
+        #[qinvokable]
         fn create_folder(self: Pin<&mut LoafEngine>, dir: &QString, name: &QString);
 
         #[qinvokable]
@@ -754,6 +760,125 @@ fn projects_dir() -> PathBuf {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     let candidates = [home.join("Projects"), home.join("Documents/Projects")];
     candidates.iter().find(|p| p.is_dir()).cloned().unwrap_or_else(|| home.join("Projects"))
+}
+
+fn find_in_path(bin: &str) -> bool {
+    let path = std::env::var("PATH").unwrap_or_default();
+    path.split(':').any(|dir| Path::new(dir).join(bin).is_file())
+}
+
+fn application_dirs() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let data_home = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| format!("{}/.local/share", home));
+    let data_dirs = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+    std::iter::once(data_home.as_str())
+        .chain(data_dirs.split(':'))
+        .map(|d| PathBuf::from(d).join("applications"))
+        .collect()
+}
+
+#[derive(Serialize)]
+struct OpenWithApp {
+    id: String,
+    name: String,
+    icon: String,
+    is_default: bool,
+}
+
+fn resolve_app_icon(icon: &str) -> String {
+    if icon.is_empty() {
+        return String::new();
+    }
+    if icon.starts_with('/') {
+        return if Path::new(icon).is_file() { format!("file://{}", icon) } else { String::new() };
+    }
+    let sizes = ["scalable", "256x256", "128x128", "64x64", "48x48", "32x32"];
+    for apps_dir in application_dirs() {
+        let Some(data_dir) = apps_dir.parent() else { continue };
+        for size in &sizes {
+            for ext in &["svg", "png"] {
+                let p = data_dir.join(format!("icons/hicolor/{}/apps/{}.{}", size, icon, ext));
+                if p.is_file() {
+                    return format!("file://{}", p.to_string_lossy());
+                }
+            }
+        }
+        for ext in &["svg", "png", "xpm"] {
+            let p = data_dir.join(format!("pixmaps/{}.{}", icon, ext));
+            if p.is_file() {
+                return format!("file://{}", p.to_string_lossy());
+            }
+        }
+    }
+    String::new()
+}
+
+fn find_desktop_file(id: &str) -> Option<PathBuf> {
+    application_dirs().into_iter().map(|d| d.join(id)).find(|p| p.is_file())
+}
+
+fn list_open_with_apps(path: &str) -> Vec<OpenWithApp> {
+    let query = |args: &[&str]| {
+        std::process::Command::new("xdg-mime")
+            .args(args)
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+    };
+    let mime = query(&["query", "filetype", path]);
+    if mime.is_empty() {
+        return Vec::new();
+    }
+    let default_id = query(&["query", "default", &mime]);
+    let wildcard = format!("{}/*", mime.split('/').next().unwrap_or(""));
+
+    let mut seen = std::collections::HashSet::new();
+    let mut apps = Vec::new();
+    for dir in application_dirs() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let id = entry.file_name().to_string_lossy().to_string();
+            if !id.ends_with(".desktop") || !seen.insert(id.clone()) {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(entry.path()) else { continue };
+            let (mut name, mut icon, mut mimes) = (String::new(), String::new(), String::new());
+            let (mut hidden, mut is_app, mut in_entry) = (false, false, false);
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with('[') {
+                    in_entry = line == "[Desktop Entry]";
+                    continue;
+                }
+                if !in_entry {
+                    continue;
+                }
+                match line.split_once('=') {
+                    Some(("Name", v)) => name = v.to_string(),
+                    Some(("Icon", v)) => icon = v.to_string(),
+                    Some(("MimeType", v)) => mimes = v.to_string(),
+                    Some(("NoDisplay", v)) | Some(("Hidden", v)) => hidden |= v == "true",
+                    Some(("Type", v)) => is_app = v == "Application",
+                    _ => {}
+                }
+            }
+            if hidden || !is_app || name.is_empty() {
+                continue;
+            }
+            if mimes.split(';').any(|m| m == mime || m == wildcard) {
+                apps.push(OpenWithApp { is_default: id == default_id, id, name, icon: resolve_app_icon(&icon) });
+            }
+        }
+    }
+    apps.sort_by(|a, b| b.is_default.cmp(&a.is_default).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    apps
 }
 
 fn load_settings() -> HashMap<String, String> {
@@ -2632,12 +2757,35 @@ impl qobject::LoafEngine {
 
     pub fn open_terminal(&self, dir_path: &QString) {
         let dir = dir_path.to_string();
-        if Path::new("/etc/profiles/per-user/m_uvex/bin/kitty").exists() {
-            let _ = std::process::Command::new("kitty").arg("--directory").arg(&dir).spawn();
-        } else if Path::new("/etc/profiles/per-user/m_uvex/bin/foot").exists() {
-            let _ = std::process::Command::new("foot").arg("-D").arg(&dir).spawn();
-        } else {
-            let _ = std::process::Command::new("xdg-terminal-exec").current_dir(&dir).spawn();
+        let configured = load_settings()
+            .get("terminal")
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .unwrap_or_else(|| "kitty".to_string());
+        let fallbacks = ["kitty", "foot", "alacritty", "wezterm", "konsole", "gnome-terminal", "xdg-terminal-exec"];
+        let Some(term) = std::iter::once(configured.as_str())
+            .chain(fallbacks)
+            .find(|t| find_in_path(t))
+        else {
+            eprintln!("loaf: no terminal emulator found");
+            return;
+        };
+        let mut cmd = std::process::Command::new(term);
+        cmd.current_dir(&dir);
+        if term == "kitty" {
+            cmd.arg("--directory").arg(&dir);
+        }
+        let _ = cmd.spawn();
+    }
+
+    pub fn open_with_apps(&self, path: &QString) -> QString {
+        let apps = list_open_with_apps(&path.to_string());
+        QString::from(&serde_json::to_string(&apps).unwrap_or_else(|_| "[]".to_string()))
+    }
+
+    pub fn open_with(&self, path: &QString, desktop_id: &QString) {
+        if let Some(file) = find_desktop_file(&desktop_id.to_string()) {
+            let _ = std::process::Command::new("gio").arg("launch").arg(&file).arg(path.to_string()).spawn();
         }
     }
 
