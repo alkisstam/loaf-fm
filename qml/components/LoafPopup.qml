@@ -94,10 +94,14 @@ Popup {
     // so the clamping is applied right after open().
     property real requestedX: 0
     property real requestedY: 0
+    // Right edge to flip against on horizontal overflow; submenus pass the
+    // anchor row's left edge so they open beside the parent, not over it.
+    property real flipX: 0
 
-    function openAt(px, py) {
+    function openAt(px, py, fx) {
         popup.requestedX = px;
         popup.requestedY = py;
+        popup.flipX = fx === undefined ? px : fx;
         popup.x = px;
         popup.y = py;
         popup.open();
@@ -115,7 +119,7 @@ Popup {
         var ty = popup.requestedY;
 
         if (tx + w > winW - margin)
-            tx = popup.requestedX - w;
+            tx = popup.flipX - w;
         if (ty + h > winH - margin)
             ty = popup.requestedY - h;
 
@@ -137,6 +141,7 @@ Popup {
     function openRightOf(anchorItem) {
         if (!anchorItem || !anchorItem.mapToItem) return;
         var p = anchorItem.mapToItem(null, anchorItem.width, 0);
-        popup.openAt(p.x, p.y);
+        var left = anchorItem.mapToItem(null, 0, 0);
+        popup.openAt(p.x, p.y, left.x);
     }
 }
