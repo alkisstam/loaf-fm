@@ -2527,11 +2527,30 @@ fn execute_search_everywhere(query_str: &str, show_hidden: bool, disambiguate_du
     items
 }
 
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 impl Default for LoafEngineRust {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home".to_string());
         let start = std::env::args()
             .nth(1)
+            .map(|a| a.strip_prefix("file://").map(percent_decode).unwrap_or(a))
             .filter(|p| Path::new(p).is_dir())
             .unwrap_or_else(|| home.clone());
         let start_path = Path::new(&start);
