@@ -91,6 +91,9 @@ pub mod qobject {
         fn open_terminal(self: &LoafEngine, dir_path: &QString);
 
         #[qinvokable]
+        fn open_in_new_window(self: &LoafEngine, path: &QString);
+
+        #[qinvokable]
         fn open_with_apps(self: &LoafEngine, path: &QString) -> QString;
 
         #[qinvokable]
@@ -413,6 +416,7 @@ pub struct FileItem {
     pub size_str: String,
     pub modified: u64,
     pub modified_str: String,
+    pub created: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -2280,7 +2284,7 @@ fn scan_directory(
                 resolve_thumbnail_url(&path, false)
             };
 
-            let (size, size_str, modified, modified_str) = if let Ok(meta) = entry.metadata() {
+            let (size, size_str, modified, modified_str, created) = if let Ok(meta) = entry.metadata() {
                 let sz = if is_dir { 0 } else { meta.len() };
                 let sz_str = if is_dir {
                     "-".to_string()
@@ -2288,9 +2292,15 @@ fn scan_directory(
                     format_size(sz)
                 };
                 let (ts, m_str) = format_modified_time(&meta);
-                (sz, sz_str, ts, m_str)
+                let ctime = meta
+                    .created()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                (sz, sz_str, ts, m_str, ctime)
             } else {
-                (0, "-".to_string(), 0, "-".to_string())
+                (0, "-".to_string(), 0, "-".to_string(), 0)
             };
 
             items.push(FileItem {
@@ -2305,6 +2315,7 @@ fn scan_directory(
                 size_str,
                 modified,
                 modified_str,
+                created,
             });
         }
     }
@@ -2327,6 +2338,7 @@ fn scan_directory(
         let ord = match sort_by {
             "size" => a.size.cmp(&b.size).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
             "modified" => a.modified.cmp(&b.modified).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            "created" => a.created.cmp(&b.created).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
             "type" => a.category.cmp(&b.category).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
             _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         };
@@ -2450,18 +2462,24 @@ fn execute_search_everywhere(query_str: &str, show_hidden: bool, disambiguate_du
 impl Default for LoafEngineRust {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home".to_string());
-        let home_path = Path::new(&home);
-        let dir_name = home_path
+        let start = std::env::args()
+            .nth(1)
+            .filter(|p| Path::new(p).is_dir())
+            .unwrap_or_else(|| home.clone());
+        let start_path = Path::new(&start);
+        let dir_name = start_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("Home")
             .to_string();
 
-        let show_hidden = load_settings().get("show_hidden").map(|v| v == "true").unwrap_or(false);
-        let items = scan_directory(home_path, show_hidden, "name", true, "first");
+        let settings = load_settings();
+        let show_hidden = settings.get("show_hidden").map(|v| v == "true").unwrap_or(false);
+        let folder_position = settings.get("folder_position").cloned().unwrap_or_else(|| "first".to_string());
+        let items = scan_directory(start_path, show_hidden, "name", true, &folder_position);
         let files_json = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
 
-        let crumbs = build_breadcrumbs(home_path, None);
+        let crumbs = build_breadcrumbs(start_path, None);
         let crumbs_json = serde_json::to_string(&crumbs).unwrap_or_else(|_| "[]".to_string());
 
         let wp_colors = read_wallpaper_colors();
@@ -2475,7 +2493,7 @@ impl Default for LoafEngineRust {
         let frequent_dirs_json = serde_json::to_string(&freq).unwrap_or_else(|_| "[]".to_string());
 
         Self {
-            current_path: QString::from(&home),
+            current_path: QString::from(&start),
             current_dir_name: QString::from(&dir_name),
             files_json: QString::from(&files_json),
             breadcrumbs_json: QString::from(&crumbs_json),
@@ -2494,8 +2512,8 @@ impl Default for LoafEngineRust {
             frequent_dirs_json: QString::from(&frequent_dirs_json),
             sort_by: QString::from("name"),
             sort_ascending: true,
-            dirs_first: true,
-            folder_position: QString::from("first"),
+            dirs_first: folder_position != "mixed",
+            folder_position: QString::from(&folder_position),
             view_mode: QString::from("grid"),
             clipboard_cut_paths_json: QString::from("[]"),
             device_type: QString::from(detect_device_type()),
@@ -2829,6 +2847,12 @@ impl qobject::LoafEngine {
         let _ = cmd.spawn();
     }
 
+    pub fn open_in_new_window(&self, path: &QString) {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg(path.to_string()).spawn();
+        }
+    }
+
     pub fn open_with_apps(&self, path: &QString) -> QString {
         let apps = list_open_with_apps(&path.to_string());
         QString::from(&serde_json::to_string(&apps).unwrap_or_else(|_| "[]".to_string()))
@@ -2924,6 +2948,7 @@ impl qobject::LoafEngine {
         self.as_mut().set_folder_position(position.clone());
         let pos_str = position.to_string();
         self.as_mut().set_dirs_first(pos_str != "mixed");
+        self.as_mut().set_setting(&QString::from("folder_position"), position);
         self.refresh();
     }
 

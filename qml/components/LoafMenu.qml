@@ -20,6 +20,7 @@ LoafPopup {
     property int highlightIndex: -1
     property var parentMenu: null
     property var currentSubmenu: null
+    property int submenuIndex: -1
 
     // Extra widgets appended below the model rows (View menu uses this) land in
     // contentHost via LoafPopup's inherited default property.
@@ -45,6 +46,15 @@ LoafPopup {
     }
 
     onAboutToHide: menu.animateOut()
+
+    onContentHoveredChanged: {
+        if (!menu.parentMenu)
+            return;
+        if (menu.contentHovered)
+            menu.parentMenu.cancelHideSubmenu();
+        else
+            menu.parentMenu.hideSubmenuSoon();
+    }
 
     onClosed: {
         menu.hideSubmenuNow();
@@ -215,12 +225,24 @@ LoafPopup {
             return;
         var wrap = menu.rowWrapperFor(index);
         menu.highlightIndex = index;
+        menu.submenuIndex = index;
         menu.showSubmenu(wrap && wrap.rowItem ? wrap.rowItem : wrap, sub);
     }
 
     function hideSubmenuSoon() {
         if (menu.currentSubmenu && menu.currentSubmenu.opened)
-            hideTimer.restart();
+            hideTimer.start();
+    }
+
+    function cancelHideSubmenu() {
+        hideTimer.stop();
+    }
+
+    function treeHovered() {
+        if (menu.contentHovered)
+            return true;
+        var sm = menu.currentSubmenu;
+        return sm !== null && sm.opened && sm.treeHovered();
     }
 
     function hideSubmenuNow() {
@@ -346,8 +368,10 @@ LoafPopup {
                 onTriggered: menu.activate(rowWrap.rowIndex)
                 onSubmenuHovered: menu.openSubmenuAt(rowWrap.rowIndex)
                 onHoveredChanged: {
-                    if (!row.hovered)
+                    if (!row.hovered) {
+                        menu.hideSubmenuSoon();
                         return;
+                    }
                     if (row.hasSubmenu)
                         menu.openSubmenuAt(rowWrap.rowIndex);
                     else
@@ -380,14 +404,17 @@ LoafPopup {
 
     Timer {
         id: hideTimer
-        interval: 220
+        interval: 1200
         onTriggered: {
             var sm = menu.currentSubmenu;
             if (!sm || !sm.opened)
                 return;
-            if (menu.contentHovered || sm.contentHovered)
+            var anchor = menu.rowWrapperFor(menu.submenuIndex);
+            if (sm.treeHovered() || (anchor && anchor.rowItem.hovered))
                 return;
             sm.close();
+            if (menu.highlightIndex === menu.submenuIndex)
+                menu.highlightIndex = -1;
         }
     }
 }

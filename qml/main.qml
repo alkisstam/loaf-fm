@@ -3798,11 +3798,6 @@ ApplicationWindow {
 
             if (!inTrash && paths.length === 1) {
                 var apps = JSON.parse(engine.open_with_apps(itemPath) || "[]");
-                if (apps.length > 0 && apps[0].is_default) {
-                    m.push({ text: "Open with " + apps[0].name, icon: "arrow-square-out", iconSource: apps[0].icon, action: function() {
-                        engine.open_with(itemPath, apps[0].id);
-                    } });
-                }
                 if (apps.length > 0) {
                     m.push({ text: "Open With", icon: "arrow-square-out", submenu: apps.map(function(app) {
                         return { text: app.name, icon: "arrow-square-out", iconSource: app.icon, action: function() {
@@ -3811,6 +3806,17 @@ ApplicationWindow {
                         } };
                     }) });
                 }
+            }
+
+            if (it.is_dir) {
+                m.push({ text: "Open in New Window", icon: "plus", action: function() {
+                    engine.open_in_new_window(itemPath);
+                } });
+                m.push({ text: "Copy Location", icon: "link", action: function() {
+                    clipboardHelper.text = itemPath;
+                    clipboardHelper.selectAll();
+                    clipboardHelper.copy();
+                } });
             }
 
             // Hide "Open Containing Folder" when the item already lives in the
@@ -3889,6 +3895,26 @@ ApplicationWindow {
                     window.triggerPaste();
                 } });
             }
+            function sortKey(label, key) {
+                return { text: label, checkable: true, checked: engine.sort_by === key, action: function() {
+                    contextMenu.close();
+                    engine.set_sort(key, engine.sort_ascending);
+                } };
+            }
+            m.push({ text: "Sort By", icon: "arrows-down-up", submenu: [
+                sortKey("Name", "name"),
+                sortKey("Size", "size"),
+                sortKey("Modified", "modified"),
+                sortKey("Created", "created"),
+                { text: "A-Z", checkable: true, checked: engine.sort_ascending, separatorBefore: true, action: function() {
+                    contextMenu.close();
+                    engine.set_sort(engine.sort_by, true);
+                } },
+                { text: "Z-A", checkable: true, checked: !engine.sort_ascending, action: function() {
+                    contextMenu.close();
+                    engine.set_sort(engine.sort_by, false);
+                } }
+            ] });
             m.push({ text: "Select All", icon: "check-square", shortcut: "Ctrl+A", separatorBefore: true, action: function() {
                 gridContainer.selectAll();
             } });
@@ -3908,6 +3934,11 @@ ApplicationWindow {
             model = buildEmptyModel();
             openAt(mx, my);
         }
+    }
+
+    TextEdit {
+        id: clipboardHelper
+        visible: false
     }
 
     // ==========================================
