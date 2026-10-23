@@ -87,7 +87,7 @@ ApplicationWindow {
         if (activeView !== "files") return;
         var items = gridContainer.getSelectedItems();
         if (items.length === 1) {
-            inputModal.showRename(items[0].name);
+            inputModal.showRename(items[0].name, items[0].is_dir);
         }
     }
 
@@ -3845,7 +3845,7 @@ ApplicationWindow {
                 engine.copy_items(JSON.stringify(paths), false);
             } });
             m.push({ text: "Rename", icon: "pencil-simple", shortcut: "F2", enabled: !inTrash, action: function() {
-                inputModal.showRename(it.name);
+                inputModal.showRename(it.name, it.is_dir);
             } });
 
             var isArchive = !isSearching && it.is_dir === false
@@ -3884,9 +3884,22 @@ ApplicationWindow {
             m.push({ text: "New Folder", icon: "folder-plus", action: function() {
                 inputModal.showNewFolder();
             } });
-            m.push({ text: "New Text File", icon: "file-plus", action: function() {
-                inputModal.showNewFile();
-            } });
+            var newFileSub = [
+                { text: "Empty Text File", icon: "file-text", action: function() {
+                    contextMenu.close();
+                    inputModal.showNewFile();
+                } }
+            ];
+            var templates = JSON.parse(engine.list_templates() || "[]");
+            templates.forEach(function(t, i) {
+                newFileSub.push({ text: t.label, icon: t.icon, separatorBefore: i === 0, action: function() {
+                    contextMenu.close();
+                    inputModal.showNewFromTemplate(t);
+                } });
+            });
+            if (templates.length === 0)
+                newFileSub.push({ text: "Add files to ~/Templates for more", enabled: false, separatorBefore: true });
+            m.push({ text: "New File", icon: "file-plus", submenu: newFileSub });
             m.push({ text: "Open Terminal Here", icon: "terminal", action: function() {
                 engine.open_terminal(engine.current_path);
             } });
@@ -3949,6 +3962,7 @@ ApplicationWindow {
 
         property string mode: "new_folder"
         property string targetItemName: ""
+        property string templatePath: ""
 
         function showNewFolder() {
             mode = "new_folder";
@@ -3972,14 +3986,26 @@ ApplicationWindow {
             open();
         }
 
-        function showRename(oldName) {
+        function showNewFromTemplate(t) {
+            mode = "template";
+            templatePath = t.path;
+            title = "New File";
+            label = "Enter a name for the new file";
+            placeholder = "File name";
+            initialText = t.name;
+            confirmText = "Save";
+            selectBasename = true;
+            open();
+        }
+
+        function showRename(oldName, isDir) {
             mode = "rename";
             targetItemName = oldName;
             title = "Rename";
             label = "Enter a new name";
             initialText = oldName;
             confirmText = "Rename";
-            selectBasename = true;
+            selectBasename = !isDir;
             open();
         }
 
@@ -3991,6 +4017,8 @@ ApplicationWindow {
                 engine.create_folder(engine.current_path, val);
             } else if (mode === "new_file") {
                 engine.create_file(engine.current_path, val);
+            } else if (mode === "template") {
+                engine.create_from_template(engine.current_path, val, templatePath);
             } else if (mode === "rename") {
                 engine.rename_item(engine.current_path, targetItemName, val);
             }

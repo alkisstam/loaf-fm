@@ -29,15 +29,11 @@ LoafDialog {
     onOpened: {
         field.text = prompt.initialText;
         field.forceActiveFocus();
-        if (prompt.selectBasename) {
-            var slash = prompt.initialText.lastIndexOf("/");
-            if (slash >= 0)
-                field.select(slash + 1, field.text.length);
-            else
-                field.selectAll();
-        } else {
+        var dot = prompt.initialText.lastIndexOf(".");
+        if (prompt.selectBasename && dot > 0)
+            field.select(0, dot);
+        else
             field.selectAll();
-        }
     }
 
     Text {

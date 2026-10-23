@@ -106,6 +106,12 @@ pub mod qobject {
         fn create_file(self: Pin<&mut LoafEngine>, dir: &QString, name: &QString);
 
         #[qinvokable]
+        fn list_templates(self: &LoafEngine) -> QString;
+
+        #[qinvokable]
+        fn create_from_template(self: Pin<&mut LoafEngine>, dir: &QString, name: &QString, template_path: &QString);
+
+        #[qinvokable]
         fn rename_item(self: Pin<&mut LoafEngine>, dir: &QString, old_name: &QString, new_name: &QString);
 
         #[qinvokable]
@@ -830,21 +836,83 @@ fn find_desktop_file(id: &str) -> Option<PathBuf> {
     application_dirs().into_iter().map(|d| d.join(id)).find(|p| p.is_file())
 }
 
+fn xdg_mime_query(args: &[&str]) -> String {
+    std::process::Command::new("xdg-mime")
+        .args(args)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+// Content sniffing reports empty files as inode/x-empty, which no app claims,
+// so fall back to the shared-mime-info extension globs for those.
+fn mime_from_extension(path: &str) -> Option<String> {
+    let name = Path::new(path).file_name()?.to_string_lossy().to_lowercase();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let files = [format!("{}/.local/share/mime/globs2", home), "/usr/share/mime/globs2".to_string()];
+    let mut best: Option<(u32, usize, String)> = None;
+    for f in &files {
+        let Ok(content) = fs::read_to_string(f) else { continue };
+        for line in content.lines() {
+            let mut parts = line.splitn(4, ':');
+            let (Some(w), Some(mime), Some(glob)) = (parts.next(), parts.next(), parts.next()) else { continue };
+            let Some(suffix) = glob.strip_prefix('*') else { continue };
+            if suffix.contains(['*', '?', '[']) || !name.ends_with(&suffix.to_lowercase()) {
+                continue;
+            }
+            let weight = w.parse().unwrap_or(50);
+            if best.as_ref().map_or(true, |(bw, bl, _)| (weight, suffix.len()) > (*bw, *bl)) {
+                best = Some((weight, suffix.len(), mime.to_string()));
+            }
+        }
+    }
+    best.map(|b| b.2)
+}
+
+fn file_mime(path: &str) -> String {
+    let mime = xdg_mime_query(&["query", "filetype", path]);
+    if mime == "inode/x-empty" || mime == "application/x-zerosize" {
+        return mime_from_extension(path).unwrap_or_else(|| "text/plain".to_string());
+    }
+    mime
+}
+
+// The mime type followed by its ancestors (e.g. application/toml -> text/plain),
+// so apps registered for a parent type are offered too.
+fn mime_with_parents(mime: &str) -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut content = String::new();
+    for f in [format!("{}/.local/share/mime/subclasses", home), "/usr/share/mime/subclasses".to_string()] {
+        content.push_str(&fs::read_to_string(f).unwrap_or_default());
+    }
+    let mut chain = vec![mime.to_string()];
+    let mut i = 0;
+    while i < chain.len() {
+        for line in content.lines() {
+            if let Some((child, parent)) = line.split_once(' ') {
+                if child == chain[i] && !chain.iter().any(|m| m == parent) {
+                    chain.push(parent.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    chain
+}
+
 fn list_open_with_apps(path: &str) -> Vec<OpenWithApp> {
-    let query = |args: &[&str]| {
-        std::process::Command::new("xdg-mime")
-            .args(args)
-            .output()
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default()
-    };
-    let mime = query(&["query", "filetype", path]);
+    let mime = file_mime(path);
     if mime.is_empty() {
         return Vec::new();
     }
-    let default_id = query(&["query", "default", &mime]);
-    let wildcard = format!("{}/*", mime.split('/').next().unwrap_or(""));
+    let chain = mime_with_parents(&mime);
+    let default_id = chain
+        .iter()
+        .map(|m| xdg_mime_query(&["query", "default", m]))
+        .find(|d| !d.is_empty())
+        .unwrap_or_default();
+    let wildcards: Vec<String> = chain.iter().map(|m| format!("{}/*", m.split('/').next().unwrap_or(""))).collect();
 
     let mut seen = std::collections::HashSet::new();
     let mut apps = Vec::new();
@@ -879,7 +947,7 @@ fn list_open_with_apps(path: &str) -> Vec<OpenWithApp> {
             if hidden || !is_app || name.is_empty() {
                 continue;
             }
-            if mimes.split(';').any(|m| m == mime || m == wildcard) {
+            if id == default_id || mimes.split(';').any(|m| chain.iter().any(|c| c == m) || wildcards.iter().any(|w| w == m)) {
                 apps.push(OpenWithApp { is_default: id == default_id, id, name, icon: resolve_app_icon(&icon) });
             }
         }
@@ -2821,6 +2889,12 @@ impl qobject::LoafEngine {
 
     pub fn open_item(&self, path: &QString) {
         let p = path.to_string();
+        if fs::metadata(&p).map(|m| m.is_file() && m.len() == 0).unwrap_or(false) {
+            if let Some(app) = list_open_with_apps(&p).into_iter().find(|a| a.is_default) {
+                self.open_with(path, &QString::from(&app.id));
+                return;
+            }
+        }
         let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
     }
 
@@ -2870,6 +2944,47 @@ impl qobject::LoafEngine {
             self.as_mut().record_undo(UndoAction::Create {
                 path: target.to_string_lossy().to_string(),
                 is_dir: true,
+            });
+        }
+        self.refresh();
+    }
+
+    pub fn list_templates(&self) -> QString {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let dir = run_cmd_stdout("xdg-user-dir", &["TEMPLATES"])
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| format!("{}/Templates", home));
+        // xdg-user-dir falls back to $HOME when the folder is not configured.
+        if dir.trim_end_matches('/') == home.trim_end_matches('/') {
+            return QString::from("[]");
+        }
+        let mut templates: Vec<serde_json::Value> = fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                if name.starts_with('.') {
+                    return None;
+                }
+                let path = e.path();
+                let label = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| name.clone());
+                let (icon, _) = icon_for_file(&path, false);
+                Some(serde_json::json!({ "name": name, "label": label, "path": path.to_string_lossy(), "icon": icon }))
+            })
+            .collect();
+        templates.sort_by_key(|t| t["label"].as_str().unwrap_or("").to_lowercase());
+        QString::from(&serde_json::to_string(&templates).unwrap_or_else(|_| "[]".to_string()))
+    }
+
+    pub fn create_from_template(mut self: Pin<&mut Self>, dir: &QString, name: &QString, template_path: &QString) {
+        let target = Path::new(&dir.to_string()).join(name.to_string());
+        if !target.exists() && fs::copy(template_path.to_string(), &target).is_ok() {
+            self.as_mut().record_undo(UndoAction::Create {
+                path: target.to_string_lossy().to_string(),
+                is_dir: false,
             });
         }
         self.refresh();
